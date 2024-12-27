@@ -8,12 +8,27 @@ import {
   HttpRedirectResponse,
   Redirect,
   Query,
+  HttpException,
+  HttpStatus,
+  ParseUUIDPipe,
+  Param,
+  UseGuards,
+  Body,
+  Post,
+  // Request,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
+import { Request as ReqEx, Response } from 'express';
 import { UserService } from './user.service';
 import { Connection } from './connection/connection';
 import { Mail } from './mail/mail';
 import { Repo } from './repo/repo';
+import { MemberService } from './member/member.service';
+import { PrismaService } from '../prisma/prisma.service';
+// import { LogMiddleware } from 'src/log/log.middleware';
+import { GuardGuard } from './guard/guard.guard';
+import { Roles } from './guard/role.reflector';
+import { MessagePattern, Payload } from '@nestjs/microservices';
+import { RedisService } from 'src/redis/redis.service';
 
 @Controller('user')
 export class UserController {
@@ -22,10 +37,106 @@ export class UserController {
     private connection: Connection,
     private mailService: Mail,
     private userRepository: Repo,
+    private memberService: MemberService,
+    private prismaService: PrismaService,
+    private redisService: RedisService,
   ) {}
   @Get('/')
   get() {
     return this.userService.sayHello();
+  }
+
+  @Get('/category/:id')
+  async getCategory(@Param('id') id: string) {
+    const cachedData = await this.redisService.getCacheKey(`category_${id}`);
+    if (cachedData) {
+      return {
+        message: 'Getting data from cache!',
+        data: cachedData,
+      };
+    }
+
+    const result = await this.prismaService.category.findUnique({
+      where: { id },
+    });
+
+    if (!result) throw new HttpException('no category found', 404);
+
+    await this.redisService.setCacheKey({
+      key: `category_${id}`,
+      data: result,
+    });
+
+    return {
+      message: 'OK diambil dari database',
+      data: result,
+    };
+  }
+
+  @Get('/all-data')
+  async allData() {
+    const data = await this.prismaService.users.findMany();
+
+    return {
+      status: 'success',
+      data,
+    };
+  }
+
+  // @UseGuards(GuardGuard)
+  // @Roles(['admin'])
+  @Get('/find/:id')
+  async getById(
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        exceptionFactory: () =>
+          new HttpException('invalid id', HttpStatus.UNPROCESSABLE_ENTITY),
+        // errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+        // optional: true,
+      }),
+    )
+    id: string,
+  ) {
+    return this.userService.getByID(id);
+  }
+
+  @Get('/add-data')
+  async addData(
+    @Query('first_name') firstName: string,
+    @Query('last_name') lastName: string,
+  ) {
+    if (!firstName || !lastName) {
+      throw new HttpException('data is not complete', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      const add = await this.prismaService.users.create({
+        data: {
+          updatedAt: new Date(),
+          first_name: firstName,
+          last_name: lastName,
+          role: 'user',
+        },
+      });
+
+      return {
+        status: 'success',
+        message: 'data successfully added',
+        data: add,
+      };
+    } catch (err) {
+      return {
+        status: 'error',
+        message: err,
+      };
+    }
+  }
+
+  @Get('/member')
+  member() {
+    console.log(process.env.DATABASE);
+    this.memberService.sendEmail();
+    return this.memberService.getConnectionName();
   }
 
   @Get('/mail')
@@ -57,7 +168,7 @@ export class UserController {
   }
 
   @Get('/get-user')
-  getUser(@Req() req: Request) {
+  getUser(@Req() req: ReqEx) {
     return {
       message: 'get user successfull',
       name: req.cookies['name'],
@@ -65,7 +176,7 @@ export class UserController {
   }
 
   @Get('/view-hello')
-  viewHello(@Req() req: Request, @Res() res: Response) {
+  viewHello(@Req() req: ReqEx, @Res() res: Response) {
     return res.render('index.html', {
       title: 'greeting',
       name: req.cookies['name'],
@@ -74,7 +185,7 @@ export class UserController {
 
   @Get('/:id')
   getId(
-    @Req() req: Request,
+    @Req() req: ReqEx,
     @Ip() userIp,
     @HostParam() host,
     @Res() res: Response,
@@ -84,5 +195,17 @@ export class UserController {
       ip: userIp,
       host: host,
     });
+  }
+
+  @Post('/send-message')
+  sendKafka(@Body() payload: any) {
+    return this.userService.sendMessageSend(payload);
+  }
+
+  @MessagePattern('order')
+  async getPayloadFormKafka(@Payload() payload) {
+    console.log('payl', payload);
+
+    return 'ok';
   }
 }

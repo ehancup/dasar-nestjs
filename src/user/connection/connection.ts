@@ -6,6 +6,14 @@ export class Connection {
   }
 }
 
+export const createConnection = () => {
+  if (process.env.DATABASE == 'mysql') {
+    return new MySqlConnection();
+  } else {
+    return new MongoConnection();
+  }
+};
+
 @Injectable()
 export class MySqlConnection extends Connection {
   getName(): string {

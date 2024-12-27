@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model category {
+  id    String  @id @default(uuid())
+  name  String
+  posts posts[] @relation("categorytoposts")
+}
+
+/// This model has been renamed to 'Renamednew' during introspection, because the original name 'new' is reserved.
+model Renamednew {
+  id   Int    @id @default(autoincrement())
+  name String
+
+  @@map("new")
+}
+
+model postimage {
+  id      String @id @default(uuid())
+  image   String
+  postsId String
+  posts   posts  @relation(fields: [postsId], references: [id], map: "PostImage_postsId_fkey")
+
+  @@index([postsId], map: "PostImage_postsId_fkey")
+}
+
+model posts {
+  id                              String      @id @default(uuid())
+  createdAt                       DateTime    @default(now())
+  updatedAt                       DateTime
+  rating                          Int
+  usersId                         String
+  favoriteById                    String?
+  postimage                       postimage[]
+  users_posts_favoriteByIdTousers users?      @relation("posts_favoriteByIdTousers", fields: [favoriteById], references: [id], map: "Posts_favoriteById_fkey")
+  users_posts_usersIdTousers      users       @relation("posts_usersIdTousers", fields: [usersId], references: [id], map: "Posts_usersId_fkey")
+  category                        category[]  @relation("categorytoposts")
+
+  @@index([favoriteById], map: "Posts_favoriteById_fkey")
+  @@index([usersId], map: "Posts_usersId_fkey")
+}
+
+model users {
+  id                              String     @id @default(uuid())
+  first_name                      String
+  last_name                       String?
+  role                            users_role @default(user)
+  createdAt                       DateTime   @default(now())
+  updatedAt                       DateTime
+  posts_posts_favoriteByIdTousers posts[]    @relation("posts_favoriteByIdTousers")
+  posts_posts_usersIdTousers      posts[]    @relation("posts_usersIdTousers")
+  wallet                          wallet?
+
+  @@unique([first_name, last_name], map: "Users_first_name_last_name_key")
+}
+
+model wallet {
+  id        String   @id @default(uuid())
+  currency  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  usersId   String   @unique(map: "Wallet_usersId_key")
+  users     users    @relation(fields: [usersId], references: [id], map: "Wallet_usersId_fkey")
+}
+
+enum users_role {
+  admin
+  seller
+  user
+}
